@@ -1,69 +1,55 @@
-name: Validate branch, commits and PR title
+name: Validate PR and Branch Naming
 
 on:
+  pull_request:
+    branches:
+      - main
   push:
     branches-ignore:
       - main
-  pull_request:
-    types: [opened, synchronize, reopened, edited]
 
 jobs:
   validate:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Validate branch name (for PRs)
-        if: github.event_name == 'pull_request'
+      - name: Validate PR title or commit message
         run: |
-          BRANCH="${{ github.head_ref }}"
-          echo "Branch: $BRANCH"
-          # Разрешаем типы: fix, docs, content, feature, bugfix, hotfix
-          if [[ ! "$BRANCH" =~ ^(fix|docs|content|feature|bugfix|hotfix)\/[a-z0-9._-]+$ ]]; then
-            echo "❌ Неправильное имя ветки. Ожидается формат: тип/краткое-описание"
-            echo "Допустимые типы: fix, docs, content, feature, bugfix, hotfix"
-            exit 1
-          fi
-          echo "✅ Имя ветки корректно"
-
-      - name: Validate commit messages in branch
-        run: |
-          # сравнить с main, если main есть в remote
-          BASE=origin/main
-          git fetch origin main --depth=1 || true
-          RANGE="$BASE..HEAD"
-          echo "Commit range: $RANGE"
-          # шаблон: тип: Описание
-          PATTERN='^(fix|docs|content|feat|chore|refactor|test|style|ci): .+'
-          FAIL=0
-          # Получаем список сообщений (каждое сообщение в отдельную строку)
-          git log --pretty=format:"%s" $RANGE | while IFS= read -r MSG; do
-            if [[ ! "$MSG" =~ $PATTERN ]]; then
-              echo "❌ Неподходящее сообщение коммита: '$MSG'"
-              FAIL=1
-            else
-              echo "✓ $MSG"
-            fi
-          done
-          if [ "$FAIL" = "1" ]; then
-            echo "Ошибка: найдены коммиты, не соответствующие правилам."
-            exit 1
-          fi
-          echo "✅ Все коммиты соответствуют шаблону"
-
-      - name: Validate PR title
-        run: |
-          TITLE="${{ github.event.pull_request.title }}"
-          echo "PR title: $TITLE"
-          if echo "$TITLE" | grep -Eq '^(docs|fix|content): '; then
-            echo "✅ Title is valid"
+          # Получаем название PR или сообщение последнего коммита
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            TITLE="${{ github.event.pull_request.title }}"
           else
-            echo "❌ Invalid PR title format. Expected something like 'fix: исправлено ...'"
+            TITLE="${{ github.event.head_commit.message }}"
+          fi
+
+          echo "PR title / Commit message: $TITLE"
+
+          # Проверка на пустое значение
+          if [ -z "$TITLE" ]; then
+            echo "❌ Title is empty!"
+            exit 1
+          fi
+
+          # Регулярка для формата: fix: ... / docs: ... / content: ...
+          if echo "$TITLE" | grep -Eq '^(fix|docs|content):[[:space:]]'; then
+            echo "✅ Title format is correct"
+          else
+            echo "❌ Invalid title format. Expected something like 'fix: исправлено ...'"
+            exit 1
+          fi
+
+      - name: Validate branch name (для push)
+        if: github.event_name == 'push'
+        run: |
+          BRANCH="${GITHUB_REF#refs/heads/}"
+          echo "Branch name: $BRANCH"
+
+          # Проверка формата ветки: тип/краткое-описание
+          if echo "$BRANCH" | grep -Eq '^(fix|docs|content)/[a-z0-9._-]+$'; then
+            echo "✅ Branch name format is correct"
+          else
+            echo "❌ Invalid branch name format. Expected something like 'fix/описание-задачи'"
             exit 1
           fi
