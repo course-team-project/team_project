@@ -10,7 +10,7 @@
 
 ## Структура репозитория
 
-```
+```markdown
 team_project/
 ├── .github/
 │   ├── workflows/
