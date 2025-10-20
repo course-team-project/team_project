@@ -1,0 +1,55 @@
+name: Validate PR and Branch Naming
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches-ignore:
+      - main
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate PR title or commit message
+        run: |
+          # Получаем название PR или сообщение последнего коммита
+          if [ "${{ github.event_name }}" == "pull_request" ]; then
+            TITLE="${{ github.event.pull_request.title }}"
+          else
+            TITLE="${{ github.event.head_commit.message }}"
+          fi
+
+          echo "PR title / Commit message: $TITLE"
+
+          # Проверка на пустое значение
+          if [ -z "$TITLE" ]; then
+            echo "❌ Title is empty!"
+            exit 1
+          fi
+
+          # Регулярка для формата: fix: ... / docs: ... / content: ...
+          if echo "$TITLE" | grep -Eq '^(fix|docs|content):[[:space:]]'; then
+            echo "✅ Title format is correct"
+          else
+            echo "❌ Invalid title format. Expected something like 'fix: исправлено ...'"
+            exit 1
+          fi
+
+      - name: Validate branch name (для push)
+        if: github.event_name == 'push'
+        run: |
+          BRANCH="${GITHUB_REF#refs/heads/}"
+          echo "Branch name: $BRANCH"
+
+          # Проверка формата ветки: тип/краткое-описание
+          if echo "$BRANCH" | grep -Eq '^(fix|docs|content)/[a-z0-9._-]+$'; then
+            echo "✅ Branch name format is correct"
+          else
+            echo "❌ Invalid branch name format. Expected something like 'fix/описание-задачи'"
+            exit 1
+          fi

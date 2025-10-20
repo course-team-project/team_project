@@ -1,0 +1,35 @@
+name: CI — Проверка форматирования и структуры
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  lint:
+    name: Проверка markdown и текста
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Клонируем репозиторий
+        uses: actions/checkout@v4
+
+      - name: Устанавливаем markdownlint
+        run: |
+          npm install -g markdownlint-cli
+
+      - name: Проверяем .md файлы
+        run: |
+          markdownlint "**/*.md" --ignore node_modules
+
+  spellcheck:
+    name: Проверка орфографии
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Проверяем текстовые файлы на опечатки
+        uses: rojopolis/spellcheck-github-actions@v0
+        with:
+          config_path: .github/spellcheck.yaml

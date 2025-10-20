@@ -1,0 +1,69 @@
+name: Check dynamic approvals (N-1 rule)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+  pull_request_review:
+    types: [submitted, dismissed, edited]
+
+jobs:
+  check-approvals:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+      contents: read
+
+    steps:
+      - name: Install GitHub CLI
+        run: sudo apt-get update && sudo apt-get install -y jq gh
+
+      - name: Check approvals dynamically
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.number }}
+        run: |
+          set -euo pipefail
+
+          echo "Проверка апрувов для PR #$PR_NUMBER в репозитории $REPO"
+          OWNER="${REPO%/*}"
+
+          #Определяем автора PR
+          PR_AUTHOR=$(gh api repos/$REPO/pulls/$PR_NUMBER --jq '.user.login')
+          echo "Автор PR: $PR_AUTHOR"
+
+          #Определяем, является ли владелец организацией или пользователем
+          if gh api orgs/$OWNER >/dev/null 2>&1; then
+            echo "Организация $OWNER найдена. Подсчёт членов организации..."
+            TOTAL_MEMBERS=$(gh api orgs/$OWNER/members --paginate --jq '.[].login' | wc -l | tr -d ' ')
+          else
+            echo "Владелец $OWNER — пользователь. Подсчёт коллабораторов репозитория..."
+            TOTAL_MEMBERS=$(gh api repos/$REPO/collaborators --paginate --jq '.[].login' | wc -l | tr -d ' ')
+          fi
+
+          echo "Общее количество участников команды (N): $TOTAL_MEMBERS"
+
+          if [ "$TOTAL_MEMBERS" -le 1 ]; then
+            echo "Найден только 1 участник — проверка N-1 не требуется."
+            exit 0
+          fi
+
+          REQUIRED=$((TOTAL_MEMBERS - 1))
+          echo "Необходимо апрувов (N-1): $REQUIRED"
+
+          #Получаем список ревью PR
+          REVIEWS=$(gh api repos/$REPO/pulls/$PR_NUMBER/reviews --jq '[.[] | select(.state=="APPROVED") | .user.login] | unique')
+          echo "Ревьюеры с APPROVED:"
+          echo "$REVIEWS" | jq '.'
+
+          #Считаем количество апруверов (исключая автора PR)
+          APPROVALS=$(echo "$REVIEWS" | jq '[.[] | select(. != "'"$PR_AUTHOR"'")] | length')
+          echo "Количество апрувов (без автора): $APPROVALS"
+
+          #Сравниваем
+          if [ "$APPROVALS" -lt "$REQUIRED" ]; then
+            echo "❌ Недостаточно апрувов ($APPROVALS / $REQUIRED). Merge недопустим."
+            exit 1
+          fi
+
+          echo "✅ Достаточно апрувов ($APPROVALS / $REQUIRED). Можно мержить."
