@@ -1,0 +1,69 @@
+name: Validate branch, commits and PR title
+
+on:
+  push:
+    branches-ignore:
+      - main
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate branch name (for PRs)
+        if: github.event_name == 'pull_request'
+        run: |
+          BRANCH="${{ github.head_ref }}"
+          echo "Branch: $BRANCH"
+          # Разрешаем типы: fix, docs, content, feature, bugfix, hotfix
+          if [[ ! "$BRANCH" =~ ^(fix|docs|content|feature|bugfix|hotfix)\/[a-z0-9._-]+$ ]]; then
+            echo "❌ Неправильное имя ветки. Ожидается формат: тип/краткое-описание"
+            echo "Допустимые типы: fix, docs, content, feature, bugfix, hotfix"
+            exit 1
+          fi
+          echo "✅ Имя ветки корректно"
+
+      - name: Validate commit messages in branch
+        run: |
+          # сравнить с main, если main есть в remote
+          BASE=origin/main
+          git fetch origin main --depth=1 || true
+          RANGE="$BASE..HEAD"
+          echo "Commit range: $RANGE"
+          # шаблон: тип: Описание
+          PATTERN='^(fix|docs|content|feat|chore|refactor|test|style|ci): .+'
+          FAIL=0
+          # Получаем список сообщений (каждое сообщение в отдельную строку)
+          git log --pretty=format:"%s" $RANGE | while IFS= read -r MSG; do
+            if [[ ! "$MSG" =~ $PATTERN ]]; then
+              echo "❌ Неподходящее сообщение коммита: '$MSG'"
+              FAIL=1
+            else
+              echo "✓ $MSG"
+            fi
+          done
+          if [ "$FAIL" = "1" ]; then
+            echo "Ошибка: найдены коммиты, не соответствующие правилам."
+            exit 1
+          fi
+          echo "✅ Все коммиты соответствуют шаблону"
+
+      - name: Validate PR title
+        run: |
+          TITLE="${{ github.event.pull_request.title }}"
+          echo "PR title: $TITLE"
+          if echo "$TITLE" | grep -Eq '^(docs|fix|content): '; then
+            echo "✅ Title is valid"
+          else
+            echo "❌ Invalid PR title format. Expected something like 'fix: исправлено ...'"
+            exit 1
+          fi
